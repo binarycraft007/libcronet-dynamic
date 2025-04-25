@@ -1,0 +1,46 @@
+From c174428ff5525335d543afc442add769c98ea9b4 Mon Sep 17 00:00:00 2001
+From: klzgrad <kizdiv@gmail.com>
+Date: Sun, 9 Jun 2019 15:19:03 +0000
+Subject: [PATCH] net/socket: Force tunneling for all sockets
+
+In the socket system, only WebSocket sockets are allowed to tunnel
+through HTTP/1 proxies. "Raw" sockets in the normal socket pool don't
+have it, and their CONNECT headers are not sent, instead the raw
+payload is sent as-is to the HTTP/1 proxy, breaking the proxying.
+
+The socket system works like this:
+
+- HTTP sockets via HTTP/1 proxies: normal pool, no tunneling.
+- HTTPS sockets via HTTP/1 proxies: normal pool, no tunneling,
+  but does its own proxy encapsulation.
+- WS sockets via HTTP/1 proxies: WS pool, tunneling.
+
+In Naive, we need the normal pool because the WS pool has some extra
+restrictions but we also need tunneling to produce a client socket
+with proxy tunneling built in.
+
+Therefore force tunneling for all sockets and have them always send
+CONNECT headers. This will otherwise break regular HTTP client sockets
+via HTTP/1 proxies, but as we don't use this combination, it is ok.
+---
+ src/net/socket/client_socket_pool_manager_impl.cc | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/net/socket/client_socket_pool_manager_impl.cc b/net/socket/client_socket_pool_manager_impl.cc
+index f5ff397913..7cd64a4205 100644
+--- a/net/socket/client_socket_pool_manager_impl.cc
++++ b/net/socket/client_socket_pool_manager_impl.cc
+@@ -86,8 +86,8 @@ ClientSocketPool* ClientSocketPoolManagerImpl::GetSocketPool(
+     new_pool = std::make_unique<TransportClientSocketPool>(
+         sockets_per_proxy_chain, sockets_per_group,
+         unused_idle_socket_timeout(pool_type_), proxy_chain,
+-        pool_type_ == HttpNetworkSession::WEBSOCKET_SOCKET_POOL,
+-        &common_connect_job_params_, cleanup_on_ip_address_change_);
++        /*force_tunnel=*/true, &common_connect_job_params_,
++        cleanup_on_ip_address_change_);
+   }
+ 
+   std::pair<SocketPoolMap::iterator, bool> ret =
+-- 
+2.49.0
+

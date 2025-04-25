@@ -1,0 +1,34 @@
+From bee82390ba0db3ab7239107612c0b99afd384161 Mon Sep 17 00:00:00 2001
+From: klzgrad <kizdiv@gmail.com>
+Date: Sun, 10 Mar 2024 10:30:35 +0800
+Subject: [PATCH] net/socket: Use SO_REUSEPORT for server sockets
+
+---
+ src/net/socket/tcp_socket_posix.cc | 11 +++++++++++
+ 1 file changed, 11 insertions(+)
+
+diff --git a/net/socket/tcp_socket_posix.cc b/net/socket/tcp_socket_posix.cc
+index ed5b2b2879..bffe5258ef 100644
+--- a/net/socket/tcp_socket_posix.cc
++++ b/net/socket/tcp_socket_posix.cc
+@@ -408,6 +408,17 @@ int TCPSocketPosix::GetPeerAddress(IPEndPoint* address) const {
+ 
+ int TCPSocketPosix::SetDefaultOptionsForServer() {
+   DCHECK(socket_);
++
++#ifdef SO_REUSEPORT
++  int reuseport = 1;
++  int rv =
++      setsockopt(socket_->socket_fd(), SOL_SOCKET, SO_REUSEPORT,
++                 reinterpret_cast<const char*>(&reuseport), sizeof(reuseport));
++  // Ignore errors that the option does not exist.
++  if (rv != 0 && errno != ENOPROTOOPT)
++    return MapSystemError(errno);
++#endif  // SO_REUSEPORT
++
+   return AllowAddressReuse();
+ }
+ 
+-- 
+2.49.0
+

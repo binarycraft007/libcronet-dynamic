@@ -1,0 +1,70 @@
+From a76003076bcdd600f2d236dddf5c619e3a6b71f3 Mon Sep 17 00:00:00 2001
+From: klzgrad <kizdiv@gmail.com>
+Date: Mon, 22 Jul 2024 00:21:45 +0800
+Subject: [PATCH] net: Allow http proxies in proxy chains
+
+---
+ src/net/base/proxy_chain.cc            |  2 +-
+ src/net/http/http_proxy_connect_job.cc | 14 +++++++++++---
+ src/net/http/http_proxy_connect_job.h  |  7 +++++++
+ 3 files changed, 19 insertions(+), 4 deletions(-)
+
+diff --git a/net/base/proxy_chain.cc b/net/base/proxy_chain.cc
+index fa3367d34a..57ebea8ba7 100644
+--- a/net/base/proxy_chain.cc
++++ b/net/base/proxy_chain.cc
+@@ -196,7 +196,7 @@ bool ProxyChain::IsValidInternal() const {
+         return false;
+       }
+       seen_quic = true;
+-    } else if (proxy_server.is_https()) {
++    } else if (proxy_server.is_https() || proxy_server.is_http()) {
+       seen_https = true;
+     } else {
+       return false;
+diff --git a/net/http/http_proxy_connect_job.cc b/net/http/http_proxy_connect_job.cc
+index 42cd2768a5..18821e615c 100644
+--- a/net/http/http_proxy_connect_job.cc
++++ b/net/http/http_proxy_connect_job.cc
+@@ -495,9 +495,17 @@ int HttpProxyConnectJob::DoBeginConnect() {
+ int HttpProxyConnectJob::DoTransportConnect() {
+   ProxyServer::Scheme scheme = GetProxyServerScheme();
+   if (scheme == ProxyServer::SCHEME_HTTP) {
+-    nested_connect_job_ = std::make_unique<TransportConnectJob>(
+-        priority(), socket_tag(), common_connect_job_params(),
+-        params_->transport_params(), this, &net_log());
++    if (params_->is_over_transport()) {
++      nested_connect_job_ = std::make_unique<TransportConnectJob>(
++          priority(), socket_tag(), common_connect_job_params(),
++          params_->transport_params(), this, &net_log());
++    } else if (params_->is_over_http()) {
++      nested_connect_job_ = std::make_unique<HttpProxyConnectJob>(
++          priority(), socket_tag(), common_connect_job_params(),
++          params_->http_params(), this, &net_log());
++    } else {
++      CHECK(false) << "Invalid nested connect job";
++    }
+   } else {
+     DCHECK_EQ(scheme, ProxyServer::SCHEME_HTTPS);
+     DCHECK(params_->is_over_ssl());
+diff --git a/net/http/http_proxy_connect_job.h b/net/http/http_proxy_connect_job.h
+index cdc01509b8..c1c4d4b4a6 100644
+--- a/net/http/http_proxy_connect_job.h
++++ b/net/http/http_proxy_connect_job.h
+@@ -102,6 +102,13 @@ class NET_EXPORT_PRIVATE HttpProxySocketParams
+     return quic_ssl_config_;
+   }
+ 
++  bool is_over_http() const {
++    return nested_params_ && nested_params_->is_http_proxy();
++  }
++  const scoped_refptr<HttpProxySocketParams>& http_params() const {
++    return nested_params_->http_proxy();
++  }
++
+   const HostPortPair& endpoint() const { return endpoint_; }
+   const ProxyChain& proxy_chain() const { return proxy_chain_; }
+   const ProxyServer& proxy_server() const {
+-- 
+2.49.0
+
